@@ -43,9 +43,9 @@ function(set_test_env _testname)
     )
 endfunction()
 
-#add_test(NAME CreateExampleEventData
-#               WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-#               COMMAND k4run k4Performance/options/createExampleEventData.py)
-#set_test_env(CreateExampleEventData)
+add_test(NAME runCaloClusterMCParticleLinker
+               WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+               COMMAND k4run RecoMCTruthLinkers/options/runCaloClusterMCParticleLinker.py)
+set_test_env(runCaloClusterMCParticleLinker)
 
 
