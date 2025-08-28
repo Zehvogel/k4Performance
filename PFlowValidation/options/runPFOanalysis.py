@@ -23,8 +23,8 @@ from Configurables import MCvalidation, THistSvc, EventDataSvc
 from Configurables import PFOtoMCviaClusterLink, PFOtoMCviaCellLink
 from k4FWCore.parseArgs import parser
 parser_group = parser.add_argument_group("runPFOanalysis.py custom options")
-parser_group.add_argument("--inputFiles", action="extend", nargs="+", metavar=("file1", "file2"), help="One or multiple input files")
-parser_group.add_argument("--outputBasename", help="Basename of the output file(s)", default="PFO_analysis_output")
+parser_group.add_argument("-i","--inputFiles", action="extend", nargs="+", metavar=("file1", "file2"), help="One or multiple input files")
+parser_group.add_argument("-o","--outputBasename", help="Basename of the output file(s)", default="PFO_analysis_output")
 parsed_args = parser.parse_known_args()[0]
 
 iosvc = IOSvc("IOSvc")
@@ -46,10 +46,12 @@ clu.InputMCParticles = ["MCParticles"]
 clu.InputClusters = ["PandoraClusters"]
 clu.InputRecoMC   = ["MCTruthRecoLink"]
 #clu.WeightThresholdPermille = 500
-
+# Parameters of photon conversion check
+clu.ConvRmin = 5.0   # mm
+clu.ConvRmax = 800.0 # mm
 
 # Histogram output (THistSvc)
-THistSvc().Output = ["PFO DATAFILE='mc_energy.root' OPT='RECREATE' TYP='ROOT'"]
+THistSvc().Output = [f"PFO DATAFILE='{parsed_args.outputBasename}.root' OPT='RECREATE' TYP='ROOT'"]
 ApplicationMgr().Dlls += ["k4PerformancePFlowPlugins"]  # base name, no 'lib', no '.so'
 ApplicationMgr(TopAlg=[val, clu],
                EvtSel="NONE",
