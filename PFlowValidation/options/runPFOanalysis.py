@@ -40,22 +40,28 @@ val.MinE = 0.0
 val.MaxE = 120.0
 
 clu = PFOtoMCviaClusterLink("ViaCluster")
+clu.OutputLevel = DEBUG
 clu.HistPath = "/PFO/PFOCluster"
 clu.InputPFOs     = ["PandoraPFOs"]
 clu.InputMCParticles = ["MCParticles"]
 clu.InputClusters = ["PandoraClusters"]
 clu.InputRecoMC   = ["MCTruthRecoLink"]
-#clu.WeightThresholdPermille = 500
-# Parameters of photon conversion check
-clu.ConvRmin = 5.0   # mm
-clu.ConvRmax = 800.0 # mm
+clu.DebugCounters = True
+clu.SelectByType = False
+clu.SelectByAngles = False
+clu.SelectPtForCharged = False
+# thresholds (radians/fraction)
+#clu.MaxDeltaPhi = 0.002
+#clu.MaxDeltaTheta = 0.001
+#clu.MaxRelDpT = 0.05
+
 
 # Histogram output (THistSvc)
 THistSvc().Output = [f"PFO DATAFILE='{parsed_args.outputBasename}.root' OPT='RECREATE' TYP='ROOT'"]
 ApplicationMgr().Dlls += ["k4PerformancePFlowPlugins"]  # base name, no 'lib', no '.so'
 ApplicationMgr(TopAlg=[val, clu],
                EvtSel="NONE",
-               EvtMax=100,
+               EvtMax=-1,
                ExtSvc=[EventDataSvc("EventDataSvc"), THistSvc("THistSvc"),iosvc],
                OutputLevel=DEBUG,
                )
