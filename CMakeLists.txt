@@ -42,5 +42,6 @@ include(GNUInstallDirs)
 include(CTest)
 
 add_subdirectory(RecoMCTruthLinkers)
+add_subdirectory(PFlowValidation)
 
 include(cmake/CreateProjectConfig.cmake)
