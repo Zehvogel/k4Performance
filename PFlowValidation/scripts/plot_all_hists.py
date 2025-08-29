@@ -38,6 +38,9 @@ def parse_particle(fname: str) -> str:
         return 'muon'
     return 'particle'
 
+def is_charged_particle(label: str) -> bool:
+    return label in ('pion', 'muon')
+
 def parse_energy_from_name(fname: str):
     n = os.path.basename(fname)
     m = re.search(r'(\d+(?:\.\d+)?)\s*GeV', n, flags=re.I)
@@ -142,14 +145,11 @@ def fit_gauss_twostep(h, default_range=(-0.3, 0.3)):
     rms0  = hfit.GetRMS() or (x2 - x1) / 6.0
     f1.SetParameters(amp0, mean0, rms0)
     r1 = hfit.Fit(f1, 'RQSN')
-    ok1 = (int(r1) == 0)
-    if not ok1:
-        # Retry on full axis once
+    if int(r1) != 0:
         f1.SetRange(xlo_tot, xhi_tot)
         f1.SetParameters(amp0, 0.0 if abs(mean0) > 0.5 else mean0, rms0)
         if int(hfit.Fit(f1, 'RQSN')) != 0:
             return {'ok': False}
-
     mu1 = f1.GetParameter(1)
     sg1 = abs(f1.GetParameter(2)) or (x2 - x1) / 6.0
 
@@ -166,9 +166,7 @@ def fit_gauss_twostep(h, default_range=(-0.3, 0.3)):
     f2 = ROOT.TF1('g2_{}'.format(id(hfit)), 'gaus', w2_lo, w2_hi)
     f2.SetParameters(f1.GetParameter(0), mu1, sg1)
     r2 = hfit.Fit(f2, 'RQSN')
-    ok2 = (int(r2) == 0)
-
-    if ok2:
+    if int(r2) == 0:
         sigp  = 100.0 * abs(f2.GetParameter(2))
         esigp = 100.0 * f2.GetParError(2)
         return {'ok': True, 'h': hfit, 'fn': f2, 'xmin': w2_lo, 'xmax': w2_hi,
@@ -224,7 +222,7 @@ def draw_note_ignored_all(canvas):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Minimal plotting + CSV: resolution (respR_sel) and selected efficiencies."
+        description="Minimal plotting + CSV: resolution (respR_sel), selected efficiencies, and diffs."
     )
     ap.add_argument('files', nargs='+', help='Input ROOT files (one particle type per run).')
     ap.add_argument('-o', '--outdir', default='figs', help='Output directory (default: figs)')
@@ -233,7 +231,9 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
     fitdir = os.path.join(args.outdir, 'fit')
+    diffdir = os.path.join(args.outdir, 'diffs')
     os.makedirs(fitdir, exist_ok=True)
+    os.makedirs(diffdir, exist_ok=True)
 
     print('[info] Using histpath hint "{}" (also trying /{} and /MC/{})'.format(
         args.histpath, args.histpath, args.histpath))
@@ -251,13 +251,18 @@ def main():
         region = parse_region(p)
         particle = parse_particle(p)
 
-        # Selected histos
-        h_mcE_sel = get_hist(f, args.histpath, 'mcE_sel')
-        h_respR_sel = get_hist(f, args.histpath, 'respR_sel')
-        h_effE_num = get_hist(f, args.histpath, 'effE_sel_num')
-        h_effE_den = get_hist(f, args.histpath, 'effE_sel_den')
+        # Selected histos (core)
+        h_mcE_sel    = get_hist(f, args.histpath, 'mcE_sel')
+        h_respR_sel  = get_hist(f, args.histpath, 'respR_sel')
+        h_effE_num   = get_hist(f, args.histpath, 'effE_sel_num')
+        h_effE_den   = get_hist(f, args.histpath, 'effE_sel_den')
         h_effCos_num = get_hist(f, args.histpath, 'effCos_sel_num')
         h_effCos_den = get_hist(f, args.histpath, 'effCos_sel_den')
+        # diffs
+        h_dE_sel     = get_hist(f, args.histpath, 'dE_sel')
+        h_dpT_sel    = get_hist(f, args.histpath, 'dpT_sel')
+        h_dTheta_sel = get_hist(f, args.histpath, 'dTheta_sel')
+        h_dPhi_sel   = get_hist(f, args.histpath, 'dPhi_sel')
 
         bn = os.path.basename(p)
         if not h_mcE_sel:
@@ -295,11 +300,13 @@ def main():
             h={
                 'mcE_sel': h_mcE_sel, 'respR_sel': h_respR_sel,
                 'effE_num': h_effE_num, 'effE_den': h_effE_den,
-                'effCos_num': h_effCos_num, 'effCos_den': h_effCos_den
+                'effCos_num': h_effCos_num, 'effCos_den': h_effCos_den,
+                'dE_sel': h_dE_sel, 'dpT_sel': h_dpT_sel,
+                'dTheta_sel': h_dTheta_sel, 'dPhi_sel': h_dPhi_sel
             }
         ))
 
-        # --- Fit preview with two-step Gaussian (no rebin) ---
+        # --- Fit preview (two-step; adaptive x-window) ---
         if h_respR_sel and h_respR_sel.GetEntries() > 0:
             fit = fit_gauss_twostep(h_respR_sel)
             c = ROOT.TCanvas('c_fit', 'fit', 700, 500)
@@ -383,6 +390,50 @@ def main():
             c.SaveAs(out)
             print('[write] {}'.format(out))
             del c
+
+        # --- per-file diffs canvas ---
+        has_any_diff = any(h is not None and h.GetEntries() > 0 for h in [h_dE_sel, h_dTheta_sel, h_dPhi_sel, h_dpT_sel])
+        if has_any_diff:
+            single_w, single_h = 700, 500
+            charged = is_charged_particle(particle)
+            if charged:
+                cols, rows = 2, 2
+                cw, ch = cols*single_w, rows*single_h
+                c = ROOT.TCanvas('c_diffs_{}'.format(bn), 'diffs {}'.format(bn), cw, ch)
+                c.Divide(cols, rows)
+                pads = [
+                    (1, h_dE_sel,     'Delta E [GeV]'),
+                    (2, h_dpT_sel,    'Delta pT [GeV]'),
+                    (3, h_dTheta_sel, 'Delta theta [rad]'),
+                    (4, h_dPhi_sel,   'Delta phi [rad]'),
+                ]
+            else:
+                cols, rows = 3, 1
+                cw, ch = cols*single_w, rows*single_h
+                c = ROOT.TCanvas('c_diffs_{}'.format(bn), 'diffs {}'.format(bn), cw, ch)
+                c.Divide(cols, rows)
+                pads = [
+                    (1, h_dE_sel,     'Delta E [GeV]'),
+                    (2, h_dTheta_sel, 'Delta theta [rad]'),
+                    (3, h_dPhi_sel,   'Delta phi [rad]'),
+                ]
+            for idx, hist, _ in pads:
+                c.cd(idx)
+                if hist and hist.GetEntries() > 0:
+                    hist.SetLineWidth(2)
+                    hist.Draw('HIST')
+                else:
+                    t = ROOT.TLatex()
+                    t.SetNDC(True)
+                    t.SetTextSize(0.05)
+                    t.DrawLatex(0.2, 0.6, 'No entries')
+            c.cd(0)
+            outdiff = os.path.join(diffdir, '{}_{}_E{}GeV_diffs.pdf'.format(particle, region, E))
+            c.SaveAs(outdiff)
+            print('[write] {}'.format(outdiff))
+            del c
+        else:
+            print('[info] {}: no diff histograms to draw.'.format(bn))
 
         f.Close()
 
@@ -569,7 +620,7 @@ def main():
     c_effE.SaveAs(out_effE)
     print('[write] {}'.format(out_effE))
 
-    # ---------------- Efficiency vs cosTheta (one canvas per region) ----------------
+    # ---------------- Efficiency vs cosTheta ----------------
     for region, fis in by_region.items():
         if has_region_tags and region == 'all':
             continue

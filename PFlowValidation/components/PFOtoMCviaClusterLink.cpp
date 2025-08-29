@@ -10,10 +10,11 @@
  * Debug:
  *  - DebugCounters: print rolling and final summaries
  *
- * Histograms (under HistPath, default "/MC/PFOCluster"):
+ * Histograms (under HistPath, default "/PFO/PFOCluster"):
  *  Inclusive:  mcE, pfoE, mcCos, pfoCos, respE, effE_den/num, effCos_den/num, pidConf, respR
  *  Selected:   mcE_sel, pfoE_sel, mcCos_sel, pfoCos_sel, respE_sel,
- *              effE_sel_den/num, effCos_sel_den/num, respR_sel
+ *              effE_sel_den/num, effCos_sel_den/num, respR_sel,
+ *              dE_sel [GeV], dpT_sel [GeV] (charged MC only), dTheta_sel [rad], dPhi_sel [rad, signed]
  */
 
 #include "k4FWCore/Consumer.h"
@@ -53,11 +54,21 @@ namespace {
   inline double phiOf(const V3& p) { return std::atan2((double)p.y,(double)p.x); }
   template <typename V3>
   inline double pTOf(const V3& p) { return std::hypot((double)p.x,(double)p.y); }
-  inline double deltaPhi(double a, double b) {
+
+  // absolute minimal deltaPhi in [0, pi]
+  inline double deltaPhiAbs(double a, double b) {
     double d = std::fabs(a - b);
     if (d > M_PI) d = 2.0*M_PI - d;
     return d;
   }
+  // signed minimal deltaPhi in (-pi, pi]
+  inline double deltaPhiSigned(double a, double b) {
+    double d = a - b;
+    while (d <= -M_PI) d += 2.0*M_PI;
+    while (d  >  M_PI) d -= 2.0*M_PI;
+    return d;
+  }
+
   struct ObjectIDLess {
     bool operator()(const podio::ObjectID& a, const podio::ObjectID& b) const noexcept {
       return (a.collectionID < b.collectionID) ||
@@ -97,14 +108,14 @@ struct PFOtoMCviaClusterLink final
       }) {}
 
   // Output / binning
-  Gaudi::Property<std::string> m_histPath{this,"HistPath","/MC/PFOCluster",
-      "THistSvc directory (must include stream, e.g. '/MC/...')."};
+  Gaudi::Property<std::string> m_histPath{this,"HistPath","/PFO/PFOCluster",
+      "THistSvc directory (must include stream, e.g. '/PFO/...')."};
   Gaudi::Property<int>    m_binsE {this,"BinsE",    64,   "Bins in energy [GeV]."};
   Gaudi::Property<double> m_eMin  {this,"EMin",     0.0,  "Min E [GeV]."};
   Gaudi::Property<double> m_eMax  {this,"EMax",     128., "Max E [GeV]."};
   Gaudi::Property<int>    m_binsC {this,"BinsCosT", 30,   "Bins in cos(theta)."};
 
-  // Selection toggles & thresholds
+  // Selection toggles & thresholds (these gate the 'selected' histograms)
   Gaudi::Property<bool>   m_DebugCounters     {this,"DebugCounters",      false, "Print rolling/final counters"};
   Gaudi::Property<bool>   m_SelectByType      {this,"SelectByType",       true,  "Require same coarse type"};
   Gaudi::Property<bool>   m_SelectByAngles    {this,"SelectByAngles",     true,  "Apply dphi/dtheta cuts"};
@@ -117,6 +128,23 @@ struct PFOtoMCviaClusterLink final
   Gaudi::Property<int>    m_binsRespR{this,"BinsRespR", 200, "Bins for response ratio"};
   Gaudi::Property<double> m_respRmin{this,"RespRMin", -0.5,  "Min response ratio"};
   Gaudi::Property<double> m_respRmax{this,"RespRMax", +0.5,  "Max response ratio"};
+
+  // diff histogram ranges
+  Gaudi::Property<int>    m_binsDiffE {this,"BinsDiffE",   200, "Bins for Delta E [GeV]"};
+  Gaudi::Property<double> m_dEmin     {this,"DeltaEMin",   -20.,"Min Delta E [GeV]"};
+  Gaudi::Property<double> m_dEmax     {this,"DeltaEMax",   +20.,"Max Delta E [GeV]"};
+
+  Gaudi::Property<int>    m_binsDiffPt{this,"BinsDiffPt",  200, "Bins for Delta pT [GeV]"};
+  Gaudi::Property<double> m_dPtMin    {this,"DeltaPtMin",  -20.,"Min Delta pT [GeV]"};
+  Gaudi::Property<double> m_dPtMax    {this,"DeltaPtMax",  +20.,"Max Delta pT [GeV]"};
+
+  Gaudi::Property<int>    m_binsDiffTh{this,"BinsDiffTh",  200, "Bins for Delta theta [rad]"};
+  Gaudi::Property<double> m_dThMin    {this,"DeltaThMin",  -0.02,"Min Delta theta [rad]"};
+  Gaudi::Property<double> m_dThMax    {this,"DeltaThMax",  +0.02,"Max Delta theta [rad]"};
+
+  Gaudi::Property<int>    m_binsDiffPh{this,"BinsDiffPh",  200, "Bins for Delta phi [rad]"};
+  Gaudi::Property<double> m_dPhMin    {this,"DeltaPhMin",  -0.02,"Min Delta phi [rad]"};
+  Gaudi::Property<double> m_dPhMax    {this,"DeltaPhMax",  +0.02,"Max Delta phi [rad]"};
 
   // Services & booking flag
   mutable SmartIF<ITHistSvc> m_histSvc;
@@ -137,6 +165,9 @@ struct PFOtoMCviaClusterLink final
   mutable TH1F *h_effE_sel_den=nullptr, *h_effE_sel_num=nullptr;
   mutable TH1F *h_effCos_sel_den=nullptr, *h_effCos_sel_num=nullptr;
   mutable TH1F *h_respR_sel=nullptr;
+
+  // Selected diffs
+  mutable TH1F *h_dE_sel=nullptr, *h_dpT_sel=nullptr, *h_dTheta_sel=nullptr, *h_dPhi_sel=nullptr;
 
   // Debug counters
   mutable uint64_t m_evt{0}, m_nPrim{0}, m_nLinks{0}, m_nPrimWithReco{0}, m_nPrimSelected{0};
@@ -186,6 +217,16 @@ struct PFOtoMCviaClusterLink final
     h_respR_sel = new TH1F("respR_sel","Response (Erec/Etrue - 1) (selected);(Erec/Etrue - 1);Entries",
                            m_binsRespR, m_respRmin, m_respRmax);
 
+    // Selected diffs
+    h_dE_sel     = new TH1F("dE_sel",     "Delta E (reco - true) (selected);#Delta E [GeV];Entries",
+                             m_binsDiffE, m_dEmin, m_dEmax);
+    h_dpT_sel    = new TH1F("dpT_sel",    "Delta p_{T} (reco - true) (selected, charged MC only);#Delta p_{T} [GeV];Entries",
+                             m_binsDiffPt, m_dPtMin, m_dPtMax);
+    h_dTheta_sel = new TH1F("dTheta_sel", "Delta #theta (reco - true) (selected);#Delta #theta [rad];Entries",
+                             m_binsDiffTh, m_dThMin, m_dThMax);
+    h_dPhi_sel   = new TH1F("dPhi_sel",   "Delta #phi (signed) (selected);#Delta #phi [rad];Entries",
+                             m_binsDiffPh, m_dPhMin, m_dPhMax);
+
     bool ok = true;
     ok&=reg(h_mcE); ok&=reg(h_pfoE); ok&=reg(h_mcCos); ok&=reg(h_pfoCos);
     ok&=reg(h_respE);
@@ -195,6 +236,9 @@ struct PFOtoMCviaClusterLink final
     ok&=reg(h_respE_sel);
     ok&=reg(h_effE_sel_den); ok&=reg(h_effE_sel_num); ok&=reg(h_effCos_sel_den); ok&=reg(h_effCos_sel_num);
     ok&=reg(h_respR_sel);
+
+    // register diffs
+    ok&=reg(h_dE_sel); ok&=reg(h_dpT_sel); ok&=reg(h_dTheta_sel); ok&=reg(h_dPhi_sel);
 
     if (!ok) error() << "Failed to register some histograms (check HistPath)" << endmsg;
     m_booked = true;
@@ -207,13 +251,13 @@ struct PFOtoMCviaClusterLink final
   }
   bool passAngles(const edm4hep::ReconstructedParticle& rp, const edm4hep::MCParticle& mc) const {
     if (!m_SelectByAngles) return true;
-    const double dphi = deltaPhi(phiOf(rp.getMomentum()), phiOf(mc.getMomentum()));
-    const double dth  = std::fabs(thetaOf(rp.getMomentum()) - thetaOf(mc.getMomentum()));
+    const double dphi = deltaPhiAbs(phiOf(rp.getMomentum()), phiOf(mc.getMomentum())); // radians
+    const double dth  = std::fabs(thetaOf(rp.getMomentum()) - thetaOf(mc.getMomentum())); // radians
     return (dphi < m_maxDphi) && (dth < m_maxDtheta);
   }
   bool passPtIfCharged(const edm4hep::ReconstructedParticle& rp, const edm4hep::MCParticle& mc) const {
     if (!m_SelectPtForCharged) return true;
-    if (std::fabs(mc.getCharge()) < 0.5) return true;
+    if (std::fabs(mc.getCharge()) < 0.5) return true; // only applies for charged MC
     const double prt = pTOf(rp.getMomentum());
     const double pmt = pTOf(mc.getMomentum());
     if (pmt <= 0) return false;
@@ -237,7 +281,6 @@ struct PFOtoMCviaClusterLink final
     primaries.reserve(mcps.size());
     for (size_t i=0; i<mcps.size(); ++i) if (mcps[i].parents_size()==0) primaries.push_back(i);
     if (primaries.empty()) for (size_t i=0;i<mcps.size();++i) primaries.push_back(i);
-    debug() << "Number of primaries in the event: " << primaries.size() << endmsg;
 
     // Inclusive truth spectra
     for (const auto& mc : mcps) {
@@ -246,7 +289,7 @@ struct PFOtoMCviaClusterLink final
       h_mcE->Fill(eMC); h_mcCos->Fill(cMC);
     }
 
-    // Selected denominators once per primary
+    // Selected denominators once per primary (efficiency baseline)
     for (auto idx : primaries) {
       const auto& mc = mcps[idx];
       if (h_effE_sel_den)   h_effE_sel_den->Fill(mc.getEnergy());
@@ -261,55 +304,35 @@ struct PFOtoMCviaClusterLink final
       linksByReco[L.getFrom().getObjectID()].push_back(&L);
     }
 
-    // Inclusive reco spectra, efficiency (per-link), and response (best link)
-    for (size_t ir = 0; ir < pfos.size(); ++ir) {
+    // Inclusive reco spectra and inclusive response + inclusive efficiency (numerator = link exists)
+    for (size_t ir=0; ir<pfos.size(); ++ir) {
       const auto& rp = pfos[ir];
       const float eRec = rp.getEnergy();
       const float cRec = safeCosTheta(rp.getMomentum());
-      h_pfoE->Fill(eRec);
-      h_pfoCos->Fill(cRec);
+      h_pfoE->Fill(eRec); h_pfoCos->Fill(cRec);
 
       auto itL = linksByReco.find(rp.getObjectID());
-      if (itL == linksByReco.end()) continue;
-
-      // --- Efficiency: per-link denominator; numerator only if PDG matches
-      for (auto Lptr : itL->second) {
-        auto itMC = mcIndex.find(Lptr->getTo().getObjectID());
-        if (itMC == mcIndex.end()) continue;
-        const auto& mc = mcps[itMC->second];
-        const float eMC = mc.getEnergy();
-        const float cMC = safeCosTheta(mc.getMomentum());
-
-        if (h_effE_den)   h_effE_den->Fill(eMC);
-        if (h_effCos_den) h_effCos_den->Fill(cMC);
-
-        const bool pidOK = (rp.getPDG() == mc.getPDG());
-        if (pidOK) {
-          if (h_effE_num)   h_effE_num->Fill(eMC);
-          if (h_effCos_num) h_effCos_num->Fill(cMC);
+      if (itL != linksByReco.end()) {
+        int bestIdx = -1; float bestW = -1.f;
+        for (auto Lptr : itL->second) {
+          auto itMC = mcIndex.find(Lptr->getTo().getObjectID());
+          if (itMC == mcIndex.end()) continue;
+          const float w = Lptr->getWeight();
+          if (w > bestW) { bestW = w; bestIdx = (int)itMC->second; }
+          m_nLinks++;
         }
-
-        if (h_pidConf) h_pidConf->Fill(pidBinMC(mc.getPDG()), pidBinReco(rp));
-      }
-
-      // --- Response: best-weight MC for this reco
-      int   bestIdx = -1;
-      float bestW   = -1.f;
-      for (auto Lptr : itL->second) {
-        auto itMC = mcIndex.find(Lptr->getTo().getObjectID());
-        if (itMC == mcIndex.end()) continue;
-        const float w = Lptr->getWeight();
-        if (w > bestW) { bestW = w; bestIdx = (int)itMC->second; }
-        m_nLinks++;
-      }
-      if (bestIdx >= 0) {
-        const auto& mc = mcps[bestIdx];
-        const float eMC = mc.getEnergy();
-        if (h_respE)   h_respE->Fill(eMC, eRec);
-        if (h_respR && eMC > 0.f) h_respR->Fill((eRec / eMC) - 1.f);
+        if (bestIdx >= 0) {
+          const auto& mc = mcps[bestIdx];
+          const float eMC = mc.getEnergy();
+          const float cMC = safeCosTheta(mc.getMomentum());
+          if (h_respE)   h_respE->Fill(eMC, eRec);
+          if (h_effE_num)   h_effE_num->Fill(eMC);   // numerator counts existence of link
+          if (h_effCos_num) h_effCos_num->Fill(cMC); // numerator counts existence of link
+          if (h_respR && eMC > 0.f) h_respR->Fill((eRec / eMC) - 1.f);
+          if (h_pidConf) h_pidConf->Fill(pidBinMC(mc.getPDG()), pidBinReco(rp));
+        }
       }
     }
-
 
     // Best reco per MC (by weight)
     std::vector<int>   bestRecoForMC(mcps.size(), -1);
@@ -326,7 +349,7 @@ struct PFOtoMCviaClusterLink final
       }
     }
 
-    // Selected fills once per primary
+    // Selected fills once per primary (apply toggles here)
     m_evt++;
     for (auto imc : primaries) {
       int ir = bestRecoForMC[imc];
@@ -342,8 +365,8 @@ struct PFOtoMCviaClusterLink final
       const float cRec = safeCosTheta(rp.getMomentum());
 
       const bool okType = sameType(rp, mc);
-      const bool okAng  = passAngles(rp, mc);
-      const bool okPt   = passPtIfCharged(rp, mc);
+      const bool okAng  = passAngles(rp, mc);         // uses radians
+      const bool okPt   = passPtIfCharged(rp, mc);    // DeltapT relative for charged MC
 
       if (okType && okAng && okPt) {
         m_nPrimSelected++;
@@ -358,6 +381,24 @@ struct PFOtoMCviaClusterLink final
         if (h_pfoE_sel)  h_pfoE_sel->Fill(eRec);
         if (h_mcCos_sel) h_mcCos_sel->Fill(cMC);
         if (h_pfoCos_sel)h_pfoCos_sel->Fill(cRec);
+
+        // Diffs for selected pairs
+        const double thReco = thetaOf(rp.getMomentum());
+        const double thMC   = thetaOf(mc.getMomentum());
+        const double phReco = phiOf(rp.getMomentum());
+        const double phMC   = phiOf(mc.getMomentum());
+        const double dE     = (double)eRec - (double)eMC;
+        const double dTh    = thReco - thMC;                    // radians
+        const double dPh    = deltaPhiSigned(phReco, phMC);     // radians, signed, circular
+        if (h_dE_sel)     h_dE_sel->Fill(dE);
+        if (h_dTheta_sel) h_dTheta_sel->Fill(dTh);
+        if (h_dPhi_sel)   h_dPhi_sel->Fill(dPh);
+
+        // Only for charged MC: fill ΔpT
+        if (std::fabs(mc.getCharge()) > 0.5) {
+          const double dpt = pTOf(rp.getMomentum()) - pTOf(mc.getMomentum());
+          if (h_dpT_sel) h_dpT_sel->Fill(dpt);
+        }
       }
     }
 
