@@ -197,6 +197,17 @@ struct PFOtoMCviaClusterLink final
     h_effCos_num = new TH1F("effCos_num","Efficiency numerator vs cos#theta;cos#theta;Entries", m_binsC, -1, 1);
 
     h_pidConf = new TH2F("pidConf","PID confusion;MC category;Reco category", 6, 0, 6, 6, 0, 6);
+    // add labels to match the Python categories
+    {
+      static const char* labels[6] = {"mu","gamma","e","NH","CH","other"};
+      for (int i = 1; i <= 6; ++i) {
+        h_pidConf->GetXaxis()->SetBinLabel(i, labels[i-1]);
+        h_pidConf->GetYaxis()->SetBinLabel(i, labels[i-1]);
+      }
+      h_pidConf->GetXaxis()->SetLabelSize(0.05);
+      h_pidConf->GetYaxis()->SetLabelSize(0.05);
+    }
+
     h_respR   = new TH1F("respR","Response (Erec/Etrue - 1);(Erec/Etrue - 1);Entries",
                          m_binsRespR, m_respRmin, m_respRmax);
 

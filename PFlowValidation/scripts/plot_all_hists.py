@@ -222,7 +222,7 @@ def draw_note_ignored_all(canvas):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Minimal plotting + CSV: resolution (respR_sel), selected efficiencies, and diffs."
+        description="Minimal plotting + CSV: resolution (respR_sel), selected efficiencies, diffs, and PID confusion."
     )
     ap.add_argument('files', nargs='+', help='Input ROOT files (one particle type per run).')
     ap.add_argument('-o', '--outdir', default='figs', help='Output directory (default: figs)')
@@ -232,8 +232,10 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     fitdir = os.path.join(args.outdir, 'fit')
     diffdir = os.path.join(args.outdir, 'diffs')
+    piddir = os.path.join(args.outdir, 'pid')
     os.makedirs(fitdir, exist_ok=True)
     os.makedirs(diffdir, exist_ok=True)
+    os.makedirs(piddir, exist_ok=True)
 
     print('[info] Using histpath hint "{}" (also trying /{} and /MC/{})'.format(
         args.histpath, args.histpath, args.histpath))
@@ -263,6 +265,8 @@ def main():
         h_dpT_sel    = get_hist(f, args.histpath, 'dpT_sel')
         h_dTheta_sel = get_hist(f, args.histpath, 'dTheta_sel')
         h_dPhi_sel   = get_hist(f, args.histpath, 'dPhi_sel')
+        # PID confusion
+        h_pidConf    = get_hist(f, args.histpath, 'pidConf')
 
         bn = os.path.basename(p)
         if not h_mcE_sel:
@@ -302,7 +306,8 @@ def main():
                 'effE_num': h_effE_num, 'effE_den': h_effE_den,
                 'effCos_num': h_effCos_num, 'effCos_den': h_effCos_den,
                 'dE_sel': h_dE_sel, 'dpT_sel': h_dpT_sel,
-                'dTheta_sel': h_dTheta_sel, 'dPhi_sel': h_dPhi_sel
+                'dTheta_sel': h_dTheta_sel, 'dPhi_sel': h_dPhi_sel,
+                'pidConf': h_pidConf
             }
         ))
 
@@ -314,7 +319,6 @@ def main():
             if fit['ok']:
                 hdraw = fit['h'].Clone('respR_sel__{}'.format(bn))
                 hdraw.SetDirectory(0)
-
                 ax = hdraw.GetXaxis()
                 ax_lo, ax_hi = ax.GetXmin(), ax.GetXmax()
 
@@ -326,7 +330,6 @@ def main():
 
                 inwin = 0.0
                 total = hdraw.Integral(1, hdraw.GetNbinsX())
-
                 if sg > 0.0:
                     cand_lo = max(ax_lo, mu - 6.0 * sg)
                     cand_hi = min(ax_hi, mu + 6.0 * sg)
@@ -341,7 +344,6 @@ def main():
                     i2 = min(nb, ax.FindBin(cand_hi))
                     inwin = hdraw.Integral(i1, i2)
                     frac = (inwin / total) if total > 0 else 0.0
-
                     if frac >= thr and (cand_hi - cand_lo) > max(ax.GetBinWidth(1) * 3.0, 1e-3):
                         xmin_plot, xmax_plot = cand_lo, cand_hi
                     else:
@@ -360,22 +362,18 @@ def main():
                     ymax = max(ymax, hdraw.GetBinContent(ib))
                 if ymax <= 0.0:
                     ymax = max(1.0, hdraw.GetMaximum())
-
                 frame = c.DrawFrame(xmin_plot, 0.0, xmax_plot, 1.15 * ymax)
                 title_suffix = 'full axis' if use_full_axis else 'mu +/- 6 sigma'
                 frame.SetTitle('{}, {}, E={} GeV; (E_rec/E_true-1) [{}]; Entries'.format(
                     particle, region, E, title_suffix))
-
                 hdraw.Draw('HIST SAME')
                 fit['fn'].SetLineColor(ROOT.kRed + 1)
                 fit['fn'].Draw('SAME')
-
                 box = ROOT.TPaveText(0.55, 0.70, 0.88, 0.88, 'NDC')
                 box.SetFillStyle(0)
                 box.SetBorderSize(0)
                 box.AddText('#sigma = {:.2f} #pm {:.2f} %'.format(fit['sigp'], fit['esigp']))
                 box.Draw()
-
                 frac_print = 100.0 * (inwin / total) if total > 0 else 0.0
                 print('[info] {}: first fit mu={:.4f}, sigma={:.4f}; used stage={}'.format(
                     bn, fit.get('mu', 0.0), fit.get('sigma', 0.0), fit.get('stage', '?')))
@@ -434,6 +432,31 @@ def main():
             del c
         else:
             print('[info] {}: no diff histograms to draw.'.format(bn))
+
+        # --- per-file PID confusion canvas ---
+        if h_pidConf and h_pidConf.GetEntries() > 0:
+            # ensure labels on axes (in case ROOT file lacks them)
+            labels = ['mu','gamma','e','NH','CH','other']
+            for i, lab in enumerate(labels, start=1):
+                h_pidConf.GetXaxis().SetBinLabel(i, lab)
+                h_pidConf.GetYaxis().SetBinLabel(i, lab)
+            h_pidConf.GetXaxis().SetTitle('MC category')
+            h_pidConf.GetYaxis().SetTitle('Reco category')
+            h_pidConf.GetXaxis().SetLabelSize(0.05)
+            h_pidConf.GetYaxis().SetLabelSize(0.05)
+
+            cpid = ROOT.TCanvas('c_pid_{}'.format(bn), 'pid {}'.format(bn), 700, 650)
+            cpid.SetRightMargin(0.15)
+            cpid.SetLeftMargin(0.12)
+            cpid.SetBottomMargin(0.12)
+            h_pidConf.SetTitle('PID confusion: {}, {}, E={} GeV'.format(particle, region, E))
+            h_pidConf.Draw('COLZ TEXT')
+            outpid = os.path.join(piddir, '{}_{}_E{}GeV_pidConf.pdf'.format(particle, region, E))
+            cpid.SaveAs(outpid)
+            print('[write] {}'.format(outpid))
+            del cpid
+        else:
+            print('[info] {}: pidConf missing or empty.'.format(bn))
 
         f.Close()
 
