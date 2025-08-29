@@ -76,7 +76,7 @@ namespace {
     }
   };
   // Coarse categories (align with Python): 0 mu, 1 gamma, 2 e, 3 nh, 4 ch, 5 other
-  inline int pidBinMC(int pdg) {
+  inline int pidBin(int pdg) {
     switch (pdg) {
       case 22: return 1;
       case 11: case -11: return 2;
@@ -84,12 +84,6 @@ namespace {
       case 211: case -211: return 4;
       default: return 3;
     }
-  }
-  inline int pidBinReco(const edm4hep::ReconstructedParticle& rp) {
-    if (std::fabs(rp.getCharge()) > 0.5) return 4; // charged hadron-like
-    const double m = std::fabs((double)rp.getMass());
-    if (m < 5e-3 && rp.getEnergy() > 0) return 1;  // gamma-like
-    return 3; // other neutral
   }
 }
 
@@ -258,7 +252,7 @@ struct PFOtoMCviaClusterLink final
   // Predicates with toggles
   bool sameType(const edm4hep::ReconstructedParticle& rp, const edm4hep::MCParticle& mc) const {
     if (!m_SelectByType) return true;
-    return pidBinReco(rp) == pidBinMC(mc.getPDG());
+    return pidBin(rp.getPDG()) == pidBin(mc.getPDG());
   }
   bool passAngles(const edm4hep::ReconstructedParticle& rp, const edm4hep::MCParticle& mc) const {
     if (!m_SelectByAngles) return true;
@@ -340,7 +334,7 @@ struct PFOtoMCviaClusterLink final
           if (h_effE_num)   h_effE_num->Fill(eMC);   // numerator counts existence of link
           if (h_effCos_num) h_effCos_num->Fill(cMC); // numerator counts existence of link
           if (h_respR && eMC > 0.f) h_respR->Fill((eRec / eMC) - 1.f);
-          if (h_pidConf) h_pidConf->Fill(pidBinMC(mc.getPDG()), pidBinReco(rp));
+          if (h_pidConf) h_pidConf->Fill(pidBin(mc.getPDG()), pidBin(rp.getPDG()));
         }
       }
     }

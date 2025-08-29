@@ -188,8 +188,15 @@ def style_graph(gr, color, marker=20):
     gr.SetLineColor(color)
     gr.SetMarkerColor(color)
     gr.SetMarkerStyle(marker)
+    gr.SetMarkerSize(2)
     gr.SetLineWidth(2)
 
+MAR = {
+    'barrel': 21,
+    'transition': 20,
+    'endcap': 24,
+    'all': 20,
+}
 COL = {
     'barrel': ROOT.kBlue + 1,
     'transition': ROOT.kOrange + 7,
@@ -315,7 +322,7 @@ def main():
         # --- Fit preview (two-step; adaptive x-window) ---
         if h_respR_sel and h_respR_sel.GetEntries() > 0:
             fit = fit_gauss_twostep(h_respR_sel)
-            c = ROOT.TCanvas('c_fit', 'fit', 700, 500)
+            c = ROOT.TCanvas('c_fit', 'fit', 700, 700)
             c.SetGrid()
             if fit['ok']:
                 hdraw = fit['h'].Clone('respR_sel__{}'.format(bn))
@@ -393,7 +400,7 @@ def main():
         # --- per-file diffs canvas ---
         has_any_diff = any(h is not None and h.GetEntries() > 0 for h in [h_dE_sel, h_dTheta_sel, h_dPhi_sel, h_dpT_sel])
         if has_any_diff:
-            single_w, single_h = 700, 500
+            single_w, single_h = 700, 700
             charged = is_charged_particle(particle)
             if charged:
                 cols, rows = 2, 2
@@ -525,9 +532,9 @@ def main():
     effCt_csv_rows = []
 
     # ---------------- Resolution vs E ----------------
-    c_res = ROOT.TCanvas('c_res', 'Resolution vs E', 900, 700)
+    c_res = ROOT.TCanvas('c_res', 'Resolution vs E', 900, 900)
     c_res.SetGrid()
-    leg = ROOT.TLegend(0.58, 0.18, 0.88, 0.38)
+    leg = ROOT.TLegend(0.58, 0.68, 0.88, 0.88)
     leg.SetFillStyle(0)
     leg.SetBorderSize(0)
     legend_has_entries = False
@@ -538,7 +545,7 @@ def main():
     if particle_label in ('gamma', 'photon'):
         target_lo, target_hi = 0.0, 8.0
     elif particle_label in ('kaon0l', 'k0l', 'kaon', 'pion', 'pi', 'neutron'):
-        target_lo, target_hi = 5.0, 25.0  # hadrons
+        target_lo, target_hi = 5.0, 30.0  # hadrons
     else:
         target_lo, target_hi = 0.0, 25.0
 
@@ -573,7 +580,7 @@ def main():
         for i, (x, y, ex, ey) in enumerate(pts):
             gr.SetPoint(i, x, y)
             gr.SetPointError(i, ex, ey)
-        style_graph(gr, COL.get(region, ROOT.kGray + 2), marker=20)
+        style_graph(gr, COL.get(region, ROOT.kGray + 2), marker=MAR[region])
         graphs[region] = gr
         if region != 'all':
             leg.AddEntry(gr, region, 'lp')
@@ -617,7 +624,7 @@ def main():
     print('[write] {}'.format(out_res))
 
     # ---------------- Efficiency vs E ----------------
-    c_effE = ROOT.TCanvas('c_effE', 'Efficiency vs E', 900, 700)
+    c_effE = ROOT.TCanvas('c_effE', 'Efficiency vs E', 900, 900)
     c_effE.SetGrid()
     legE = ROOT.TLegend(0.58, 0.18, 0.88, 0.38)
     legE.SetFillStyle(0)
@@ -654,7 +661,7 @@ def main():
         for i, (x, y, ex, ey) in enumerate(pts):
             gr.SetPoint(i, x, y)
             gr.SetPointError(i, ex, ey)
-        style_graph(gr, COL.get(region, ROOT.kGray + 2), marker=21)
+        style_graph(gr, COL.get(region, ROOT.kGray + 2), marker=MAR[region])
         graphsE[region] = gr
         if region != 'all':
             legE.AddEntry(gr, region, 'lp')
@@ -732,7 +739,7 @@ def main():
                                        '{:.0f}'.format(num), '{:.0f}'.format(den),
                                        os.path.basename(fi.path)])
             color = energy_to_color[E]
-            style_graph(gr, color, marker=20)
+            style_graph(gr, color, marker=MAR[region])
             graphsC.append(gr)
             legC.AddEntry(gr, 'E={} GeV'.format(E), 'lp')
 
