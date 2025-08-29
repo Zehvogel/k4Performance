@@ -32,13 +32,6 @@ iosvc.Input = parsed_args.inputFiles
 
 iosvc.CollectionNames = ["MCParticles", "PandoraPFOs", "PandoraClusters", "MCTruthRecoLink"]
 
-val = MCvalidation("MCEnergies")
-val.InputMCParticles = ["MCParticles"]
-val.HistPath = "/PFO"
-val.Bins = 120
-val.MinE = 0.0
-val.MaxE = 120.0
-
 clu = PFOtoMCviaClusterLink("ViaCluster")
 clu.OutputLevel = DEBUG
 clu.HistPath = "/PFO/PFOCluster"
@@ -58,8 +51,7 @@ clu.SelectPtForCharged = False
 
 # Histogram output (THistSvc)
 THistSvc().Output = [f"PFO DATAFILE='{parsed_args.outputBasename}.root' OPT='RECREATE' TYP='ROOT'"]
-ApplicationMgr().Dlls += ["k4PerformancePFlowPlugins"]  # base name, no 'lib', no '.so'
-ApplicationMgr(TopAlg=[val, clu],
+ApplicationMgr(TopAlg=[clu],
                EvtSel="NONE",
                EvtMax=-1,
                ExtSvc=[EventDataSvc("EventDataSvc"), THistSvc("THistSvc"),iosvc],

@@ -11,6 +11,7 @@ import ROOT
 
 ROOT.gROOT.SetBatch(True)
 ROOT.TH1.AddDirectory(False)
+ROOT.gStyle.SetOptStat(0)
 
 # ---------------------------
 # Parsing helpers
@@ -433,25 +434,62 @@ def main():
         else:
             print('[info] {}: no diff histograms to draw.'.format(bn))
 
-        # --- per-file PID confusion canvas ---
+        # --- per-file PID confusion: counts + global-normalized (with rotated Y labels) ---
         if h_pidConf and h_pidConf.GetEntries() > 0:
-            # ensure labels on axes (in case ROOT file lacks them)
             labels = ['mu','gamma','e','NH','CH','other']
             for i, lab in enumerate(labels, start=1):
                 h_pidConf.GetXaxis().SetBinLabel(i, lab)
                 h_pidConf.GetYaxis().SetBinLabel(i, lab)
             h_pidConf.GetXaxis().SetTitle('MC category')
             h_pidConf.GetYaxis().SetTitle('Reco category')
-            h_pidConf.GetXaxis().SetLabelSize(0.05)
-            h_pidConf.GetYaxis().SetLabelSize(0.05)
+            h_pidConf.GetXaxis().SetLabelSize(0.045)
+            h_pidConf.GetXaxis().SetTitleOffset(1.2)
+            h_pidConf.GetYaxis().SetLabelSize(0.045)
+            h_pidConf.GetYaxis().SetTitleOffset(2.2)
+            h_pidConf.LabelsOption('v', 'Y')  # rotate Y bin labels
+            h_pidConf.SetStats(0)
 
-            cpid = ROOT.TCanvas('c_pid_{}'.format(bn), 'pid {}'.format(bn), 700, 650)
-            cpid.SetRightMargin(0.15)
-            cpid.SetLeftMargin(0.12)
-            cpid.SetBottomMargin(0.12)
-            h_pidConf.SetTitle('PID confusion: {}, {}, E={} GeV'.format(particle, region, E))
+            # 1) Raw counts plot
+            cpid_counts = ROOT.TCanvas('c_pid_counts_{}'.format(bn), 'pid counts {}'.format(bn), 800, 700)
+            cpid_counts.SetLeftMargin(0.24)
+            cpid_counts.SetRightMargin(0.16)
+            cpid_counts.SetBottomMargin(0.12)
+            ROOT.gStyle.SetPaintTextFormat('0.0f')
+            h_pidConf.SetTitle('PID confusion (counts): {}, {}, E={} GeV'.format(particle, region, E))
+            h_pidConf.GetZaxis().SetTitle('Counts')
             h_pidConf.Draw('COLZ TEXT')
-            outpid = os.path.join(piddir, '{}_{}_E{}GeV_pidConf.pdf'.format(particle, region, E))
+            outpid_counts = os.path.join(piddir, '{}_{}_E{}GeV_pidConf_counts.pdf'.format(particle, region, E))
+            cpid_counts.SaveAs(outpid_counts)
+            print('[write] {}'.format(outpid_counts))
+            del cpid_counts
+
+            # 2) Global-normalized plot (shape preserved, scaled to sum=1)
+            h_norm = h_pidConf.Clone('pidConf_norm_global')
+            h_norm.SetDirectory(0)
+            nx, ny = h_norm.GetNbinsX(), h_norm.GetNbinsY()
+            total = h_norm.Integral(1, nx, 1, ny)  # exclude under/overflow
+            if total > 0.0:
+                h_norm.Scale(1.0 / total)
+            h_norm.LabelsOption('v', 'Y')
+            h_norm.GetXaxis().SetLabelSize(0.045)
+            h_norm.GetXaxis().SetTitleOffset(1.2)
+            h_norm.GetYaxis().SetLabelSize(0.045)
+            h_norm.GetYaxis().SetTitleOffset(2.2)
+            h_norm.SetStats(0)
+
+            cpid = ROOT.TCanvas('c_pid_{}'.format(bn), 'pid {}'.format(bn), 800, 700)
+            cpid.SetLeftMargin(0.24)
+            cpid.SetRightMargin(0.16)
+            cpid.SetBottomMargin(0.12)
+
+            ROOT.gStyle.SetPaintTextFormat('0.2f')
+            h_norm.SetTitle('PID confusion (global norm): {}, {}, E={} GeV'.format(particle, region, E))
+            h_norm.GetZaxis().SetTitle('Fraction')
+            h_norm.SetMinimum(0.0)
+            h_norm.SetMaximum(1.0)
+            h_norm.Draw('COLZ TEXT')
+
+            outpid = os.path.join(piddir, '{}_{}_E{}GeV_pidConf_norm.pdf'.format(particle, region, E))
             cpid.SaveAs(outpid)
             print('[write] {}'.format(outpid))
             del cpid
