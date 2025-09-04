@@ -29,8 +29,8 @@
 #include "edm4hep/RecoMCParticleLinkCollection.h"
 #include "podio/ObjectID.h"
 
-#include "TH1F.h"
-#include "TH2F.h"
+#include "TFile.h"
+#include "TTree.h"
 
 #include <map>
 #include <vector>
@@ -53,15 +53,33 @@ struct PFONTupleWriter final
       }) {}
 
 
+  Gaudi::Property<std::string> m_filePath{this, "FilePath", "test.root", "long blabla"};
+  std::unique_ptr<TFile> m_file = nullptr;
+  std::unique_ptr<TTree> m_tree = nullptr;
+  std::vector<TBranch*> m_branches;
+
+  StatusCode initialize() override {
+    m_file = std::make_unique<TFile>(m_filePath.value().c_str(), "RECREATE");
+    m_file->cd();
+    m_tree = std::make_unique<TTree>("PFONtuple", "PFONtuple");
+    
+    m_branches.push_back(m_tree->Branch("test_branch", (double*)nullptr));
+
+    return Consumer::initialize();
+  }
+
+
   void operator()(const edm4hep::ReconstructedParticleCollection& pfos,
                   const edm4hep::MCParticleCollection& mcps,
                   const edm4hep::RecoMCParticleLinkCollection& RecoMCTruthLinks,
                   const edm4hep::RecoMCParticleLinkCollection& MCTruthRecoLinks) const override {
-
-
+                    double foo = 42.;
+                    m_branches[0]->SetAddress(&foo);
+                    m_tree->Fill();
   }
 
   StatusCode finalize() override {
+    m_tree->Write();
     return Consumer::finalize();
   }
 };
