@@ -54,4 +54,9 @@ add_test(NAME runPFONTuple
                COMMAND k4run PFlowValidation/options/runPFONTuple.py -i qq.REC.edm4hep.root -n 5)
 set_test_env(runPFONTuple)
 
+add_test(NAME runPFONTuple_long
+               WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+               COMMAND k4run PFlowValidation/options/runPFONTuple.py -i /eos/experiment/fcc/prod/fcc/ee/test_spring2024/240gev/Hbb/CLD_o2_v07/rec/00016943/000/Hbb_rec_16943_1.root)
+set_test_env(runPFONTuple_long)
+
 
